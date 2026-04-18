@@ -32,7 +32,7 @@ void *client_handler(void *socket_desc) {
         buffer[strcspn(buffer, "\r\n")] = 0;
 
         char cmd[20], arg1[100], arg2[100], arg3[100];
-        int num_args = sscanf(buffer, "%s %s %s %s", cmd, arg1, arg2, arg3);
+        sscanf(buffer, "%s %s %s %s", cmd, arg1, arg2, arg3);
 
         if (strcmp(cmd, "LOGIN") == 0) {
             if (auth_login(arg1, arg2, &session)) {
