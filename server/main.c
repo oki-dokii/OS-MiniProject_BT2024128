@@ -6,9 +6,9 @@
 #include <sys/stat.h>
 
 void ensure_environment() {
-    mkdir("data", 0755);
-    mkdir("data/auctions", 0755);
-    mkdir("data/bids", 0755);
+    if (mkdir("data", 0755) == -1 && errno != EEXIST) perror("mkdir data failed");
+    if (mkdir("data/auctions", 0755) == -1 && errno != EEXIST) perror("mkdir auctions failed");
+    if (mkdir("data/bids", 0755) == -1 && errno != EEXIST) perror("mkdir bids failed");
 }
 
 void system_event_handler(AuctionEvent ev) {

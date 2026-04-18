@@ -173,5 +173,6 @@ void server_start(int port) {
             free(new_sock);
             close(new_socket);
         }
+        pthread_detach(thread_id); // Ensure thread resources are reclaimed on exit
     }
 }

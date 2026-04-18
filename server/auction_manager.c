@@ -53,8 +53,12 @@ static void deserialize_auction(const char *buf, Auction *a) {
 }
 
 int auction_create(const char *item_name, double start_price, int duration_secs) {
-    mkdir("data", 0755);
-    mkdir(AUCTIONS_DIR, 0755);
+    if (mkdir("data", 0755) == -1 && errno != EEXIST) {
+        perror("Failed to create data directory");
+    }
+    if (mkdir(AUCTIONS_DIR, 0755) == -1 && errno != EEXIST) {
+        perror("Failed to create auctions directory");
+    }
 
     Auction a;
     a.id = get_next_id();
@@ -99,7 +103,10 @@ bool auction_get(int id, Auction *auction) {
 
 int auction_list_all(int *ids, int max_count) {
     DIR *d = opendir(AUCTIONS_DIR);
-    if (!d) return 0;
+    if (!d) {
+        perror("Failed to open auctions directory for listing");
+        return 0;
+    }
 
     struct dirent *dir;
     int count = 0;
@@ -114,7 +121,10 @@ int auction_list_all(int *ids, int max_count) {
 
 bool auction_close(int id) {
     Auction a;
-    if (!auction_get(id, &a)) return false;
+    if (!auction_get(id, &a)) {
+        fprintf(stderr, "Failed to retrieve auction %d for closing\n", id);
+        return false;
+    }
     
     a.status = AUCTION_CLOSED;
     

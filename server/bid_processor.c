@@ -43,7 +43,9 @@ BidResult bid_place(const Session *session, int auction_id, double amount) {
     }
 
     // 4. Record the bid
-    mkdir(BIDS_DIR, 0755);
+    if (mkdir(BIDS_DIR, 0755) == -1 && errno != EEXIST) {
+        perror("Failed to create bids directory");
+    }
     char bid_path[150];
     sprintf(bid_path, "%s/%d.txt", BIDS_DIR, auction_id);
 
@@ -68,11 +70,7 @@ BidResult bid_place(const Session *session, int auction_id, double amount) {
     char auc_path[150];
     sprintf(auc_path, "data/auctions/%d.txt", auction_id);
     
-    // We need to re-serialize the entire auction object
-    // This part is slightly redundant but necessary for flat-file update
-    // In a real system we'd have it in the auction_manager
-    // Let's use a helper that auction_manager.c provides or just implement it here
-    // For simplicity, I'll just write the auction file back using a buffer
+    // Serialize updated auction state back to disk
     char auc_buf[1024];
     sprintf(auc_buf, 
         "id:%d\n"
