@@ -10,8 +10,12 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <semaphore.h>
 
 #define BUFFER_SIZE 2048
+#define MAX_CONCURRENT_CLIENTS 10
+
+static sem_t connection_limit;
 
 void *client_handler(void *socket_desc) {
     int sock = *(int *)socket_desc;
@@ -112,6 +116,7 @@ void *client_handler(void *socket_desc) {
 
     printf("[SERVER] Client on socket %d disconnected\n", sock);
     close(sock);
+    sem_post(&connection_limit); // Release semaphore slot
     return NULL;
 }
 
@@ -145,7 +150,10 @@ void server_start(int port) {
         exit(EXIT_FAILURE);
     }
 
-    printf("[SERVER] Listening on port %d...\n", port);
+    // Initialize semaphore for connection limiting (Counting Semaphore)
+    sem_init(&connection_limit, 0, MAX_CONCURRENT_CLIENTS);
+
+    printf("[SERVER] Listening on port %d (Max clients: %d)...\n", port, MAX_CONCURRENT_CLIENTS);
 
     while (1) {
         new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen);
@@ -153,6 +161,9 @@ void server_start(int port) {
             perror("Accept failed");
             continue;
         }
+
+        // Wait for a slot to become available (Semaphore)
+        sem_wait(&connection_limit);
 
         int *new_sock = malloc(sizeof(int));
         *new_sock = new_socket;

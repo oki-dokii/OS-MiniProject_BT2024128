@@ -11,10 +11,10 @@ A robust, multi-user auction server built in C to demonstrate core Operating Sys
 | **Auth** | `auth.c` | RBAC | Role-based permission gating for Admin/Bidder/Viewer. |
 | **File Mgr** | `file_manager.c` | Advisory Locking | `fcntl`-based read/write locks for safe concurrent file I/O. |
 | **Auction Mgr** | `auction_manager.c` | Persistence | CRUD operations for auctions with disk serialization. |
-| **Bid Proc** | `bid_processor.c` | Mutex / Atomicity | Thread-safe bid validation and state updates. |
-| **Timer** | `timer.c` | Signals / Alarms | `SIGALRM` and background pthreads for auto-expiry. |
+| **Bid Proc** | `bid_processor.c` | Mutex | Atomic validation and record updates. |
+| **Network** | `socket_server.c` | Sockets / Semaphore | TCP server with client connection limiting. |
+| **Timer** | `timer.c` | Signal Heartbeat | `SIGALRM` driven automated cleanup. |
 | **IPC** | `ipc.c` | Named Pipes (FIFO) | System-wide event broadcasting via POSIX FIFOs. |
-| **Network** | `socket_server.c` | TCP Sockets | Multi-threaded server handling concurrent TCP sessions. |
 
 ---
 
@@ -33,7 +33,10 @@ This prevents the "Lost Update" problem at the filesystem level.
 Implemented in `bid_processor.c`. While the File Manager protects the *disk*, the `bid_mutex` (`pthread_mutex_t`) protects the *logic*. It ensures that the sequence "Read current price → Validate new bid → Write new record" is fully atomic, preventing race conditions where two users might tie for the same price.
 
 ### 4. Process Management & Signals
-Implemented in `timer.c`. The system uses `signal(SIGALRM, ...)` and `alarm(1)` to create a recurring heartbeat. This "ticks" every second, allowing a background thread to monitor all active auctions and automatically trigger `auction_close()` when time expires.
+Implemented in `timer.c`. The system uses `signal(SIGALRM, ...)` and `alarm(1)` to create a recurring heartbeat. This pulse triggers a visible notification via the signal handler and allows a background thread to monitor all active auctions, automatically triggering `auction_close()` when time expires.
+
+### 5. Semaphores (Resource Counting)
+Implemented in `socket_server.c`. We use a counting semaphore (`sem_t connection_limit`) to limit the number of concurrent client connections (set to 10). This demonstrates OS-level resource management and thread blocking, as new clients will be held at `sem_wait()` if the server is at capacity.
 
 ### 5. Inter-Process Communication (IPC)
 Implemented in `ipc.c`. A named pipe (FIFO) at `data/auction_events.fifo` serves as a broadcast channel. Modules like `bid_processor.c` write binary `AuctionEvent` structs to the pipe, which are picked up by a listener thread to provide real-time notification across the system.
@@ -119,7 +122,7 @@ auction_system/
 
 ## 🧠 Design Decisions
 
-- **Mutex over Semaphore**: Used `pthread_mutex_t` for the Bid Processor because bidding is a classic "all-or-nothing" critical section. Mutexes are optimized for exactly one thread owning the resource, which fits our transactional model better than counting semaphores.
+- **Mutex vs Semaphore**: Both are used in this project. **Mutexes** are used in the Bid Processor for exclusive ownership of a transaction. **Semaphores** are used in the Socket Server as a "counting" mechanism to limit concurrent socket sessions, demonstrating their utility in resource throttling.
 - **Named Pipe over Shared Memory**: Chosen for IPC because it provides a simplified, file-like interface for broadcasting events. Unlike shared memory, FIFOs handle synchronization internally (via kernel-level byte-streams), making them easier to debug for event logs.
 - **fcntl over flock**: `fcntl` was chosen for its flexibility. It supports byte-range locking and is POSIX standard, whereas `flock` can have inconsistent behavior on some filesystems (like NFS) and lacks the granularity needed for complex OS credit.
 - **Thread-per-Client over Select/Poll**: For an OS mini-project, the thread-per-client model is much more "OS credible" as it demonstrates process/thread management and context switching. While `select/poll` is more scalable for thousands of clients, pthreads are simpler for maintaining stateful authentication sessions.

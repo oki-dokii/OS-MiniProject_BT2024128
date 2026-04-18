@@ -23,8 +23,8 @@ static bool running = true;
 // SIGALRM handler to demonstrate signal handling
 void handle_alarm(int sig) {
     (void)sig;
-    // We can use this to print a system-wide "tick" or simple status
-    // printf("[SYSTEM] SIGALRM received - Pulse check\n");
+    // Visible indicator that the SIGALRM signal transition is occurring
+    write(STDOUT_FILENO, "[SIGNAL] Heartbeat (SIGALRM)\n", 29);
 }
 
 void *ticker_func(void *arg) {
