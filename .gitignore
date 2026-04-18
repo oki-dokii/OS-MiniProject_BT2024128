@@ -1,0 +1,19 @@
+# Binaries
+auction_server
+auction_client
+test_auth
+test_file_manager
+test_auction_manager
+test_bid_processor
+test_timer
+test_ipc
+
+# Data (Sensitive/Transient)
+data/*.txt
+data/auctions/
+data/bids/
+data/*.fifo
+
+# Others
+*.o
+.DS_Store
