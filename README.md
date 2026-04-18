@@ -129,6 +129,14 @@ auction_system/
 
 ---
 
+## 💡 Innovation & Advanced Features
+
+- **Live Event Broadcasting**: Unlike basic request-response systems, this server maintains a registry of all active client sockets. When an event occurs (New Bid, Auction Closed), the server uses IPC triggers to broadcast real-time notifications to all connected clients simultaneously.
+- **Concurrent Session Management**: The server supports multiple independent auctions running with their own dedicated timers, all managed by a single background thread and synchronized via global mutexes and semaphores.
+- **Real-Time Heartbeat**: The system provides a visual signal pulse (`SIGALRM`), demonstrating low-level kernel interaction and automated resource aging.
+
+---
+
 ## 🛠️ Technologies
 - **Language**: C (C99 Standard)
 - **Concurrency**: POSIX Threads (`pthreads`)

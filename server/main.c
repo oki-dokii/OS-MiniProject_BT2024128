@@ -17,8 +17,12 @@ void system_event_handler(AuctionEvent ev) {
     if (ev.type == EVENT_BID_PLACED) type = "BID";
     if (ev.type == EVENT_AUCTION_CLOSED) type = "CLOSE";
     
-    printf("[BROADCAST] %s: Auction %d | User: %s | Val: %.2f\n", 
+    char msg[256];
+    sprintf(msg, "\n[BROADCAST] %s: Auction %d | User: %s | Val: %.2f\n> ", 
            type, ev.auction_id, ev.bidder_username, ev.amount);
+    
+    printf("%s", msg);
+    broadcast_to_clients(msg);
 }
 
 int main() {

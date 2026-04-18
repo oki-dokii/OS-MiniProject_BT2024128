@@ -14,12 +14,50 @@
 
 #define BUFFER_SIZE 2048
 #define MAX_CONCURRENT_CLIENTS 10
+#define MAX_CLIENTS 100
 
 static sem_t connection_limit;
+static int client_sockets[MAX_CLIENTS];
+static pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void broadcast_to_clients(const char *msg) {
+    pthread_mutex_lock(&clients_mutex);
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (client_sockets[i] != -1) {
+            send(client_sockets[i], msg, strlen(msg), 0);
+        }
+    }
+    pthread_mutex_unlock(&clients_mutex);
+}
+
+static void register_client(int sock) {
+    pthread_mutex_lock(&clients_mutex);
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (client_sockets[i] == -1) {
+            client_sockets[i] = sock;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&clients_mutex);
+}
+
+static void unregister_client(int sock) {
+    pthread_mutex_lock(&clients_mutex);
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (client_sockets[i] == sock) {
+            client_sockets[i] = -1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&clients_mutex);
+}
 
 void *client_handler(void *socket_desc) {
     int sock = *(int *)socket_desc;
     free(socket_desc);
+    
+    register_client(sock);
+    
     char buffer[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     Session session = {0};
@@ -115,6 +153,7 @@ void *client_handler(void *socket_desc) {
     }
 
     printf("[SERVER] Client on socket %d disconnected\n", sock);
+    unregister_client(sock);
     close(sock);
     sem_post(&connection_limit); // Release semaphore slot
     return NULL;
@@ -152,6 +191,8 @@ void server_start(int port) {
 
     // Initialize semaphore for connection limiting (Counting Semaphore)
     sem_init(&connection_limit, 0, MAX_CONCURRENT_CLIENTS);
+
+    for (int i = 0; i < MAX_CLIENTS; i++) client_sockets[i] = -1;
 
     printf("[SERVER] Listening on port %d (Max clients: %d)...\n", port, MAX_CONCURRENT_CLIENTS);
 
