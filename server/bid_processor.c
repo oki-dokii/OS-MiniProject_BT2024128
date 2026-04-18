@@ -7,6 +7,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 #define BIDS_DIR "data/bids"
 

@@ -6,6 +6,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 #define AUCTIONS_DIR "data/auctions"
 #define NEXT_ID_FILE "data/auctions/next_id.txt"

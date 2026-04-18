@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 void ensure_environment() {
     if (mkdir("data", 0755) == -1 && errno != EEXIST) perror("mkdir data failed");
