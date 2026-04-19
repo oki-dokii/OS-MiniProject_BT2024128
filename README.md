@@ -33,7 +33,9 @@ This prevents the "Lost Update" problem at the filesystem level.
 Implemented in `bid_processor.c`. While the File Manager protects the *disk*, the `bid_mutex` (`pthread_mutex_t`) protects the *logic*. It ensures that the sequence "Read current price → Validate new bid → Write new record" is fully atomic, preventing race conditions where two users might tie for the same price.
 
 ### 4. Process Management & Signals
-Implemented in `timer.c`. The system uses `signal(SIGALRM, ...)` and `alarm(1)` to create a recurring heartbeat. This pulse triggers a visible notification via the signal handler and allows a background thread to monitor all active auctions, automatically triggering `auction_close()` when time expires.
+Implemented in `main.c` and `timer.c`. 
+- **SIGALRM**: Used for a 1-second heartbeat to trigger background auction expiry checks.
+- **SIGINT**: The system traps the interrupt signal (Ctrl+C) to perform a **Graceful Shutdown**, broadcasting a departure message to all active clients and cleaning up IPC resources before exiting.
 
 ### 5. Semaphores (Resource Counting)
 Implemented in `socket_server.c`. We use a counting semaphore (`sem_t connection_limit`) to limit the number of concurrent client connections (set to 10). This demonstrates OS-level resource management and thread blocking, as new clients will be held at `sem_wait()` if the server is at capacity.

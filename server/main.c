@@ -12,6 +12,14 @@ void ensure_environment() {
     if (mkdir("data/bids", 0755) == -1 && errno != EEXIST) perror("mkdir bids failed");
 }
 
+void signal_shutdown_handler(int sig) {
+    (void)sig;
+    printf("\n[SYSTEM] SIGINT received. Shutting down gracefully...\n");
+    broadcast_to_clients("\n[SERVER] Server shutting down. Goodbye!\n");
+    ipc_cleanup();
+    exit(0);
+}
+
 void system_event_handler(AuctionEvent ev) {
     const char *type = "EVENT";
     if (ev.type == EVENT_AUCTION_CREATED) type = "CREATE";
@@ -30,6 +38,8 @@ int main() {
     printf("--- AUCTION SYSTEM SERVER INITIALIZING ---\n");
     
     ensure_environment();
+    
+    signal(SIGINT, signal_shutdown_handler); // Register graceful shutdown
     
     if (!ipc_init()) {
         fprintf(stderr, "Failed to initialize IPC\n");
