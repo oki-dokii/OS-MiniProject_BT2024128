@@ -39,6 +39,8 @@ bool auction_get(int id, Auction *auction);
  */
 int auction_list_all(int *ids, int max_count);
 
+int auction_search(const char *keyword, int *ids, int max_count);
+
 /**
  * Marks an auction as CLOSED.
  * Returns true on success.

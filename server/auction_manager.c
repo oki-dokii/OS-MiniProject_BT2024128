@@ -120,6 +120,22 @@ int auction_list_all(int *ids, int max_count) {
     return count;
 }
 
+int auction_search(const char *keyword, int *ids, int max_count) {
+    int all_ids[100];
+    int all_count = auction_list_all(all_ids, 100);
+    int match_count = 0;
+
+    for (int i = 0; i < all_count && match_count < max_count; i++) {
+        Auction a;
+        if (auction_get(all_ids[i], &a)) {
+            if (strcasestr(a.item_name, keyword)) {
+                ids[match_count++] = all_ids[i];
+            }
+        }
+    }
+    return match_count;
+}
+
 bool auction_close(int id) {
     Auction a;
     if (!auction_get(id, &a)) {

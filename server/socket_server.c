@@ -97,6 +97,20 @@ void *client_handler(void *socket_desc) {
                 }
             }
         }
+        else if (strcmp(cmd, "SEARCH") == 0) {
+            int ids[50];
+            int count = auction_search(arg1, ids, 50);
+            sprintf(response, "Search results for '%s' (%d found):\n", arg1, count);
+            for (int i = 0; i < count; i++) {
+                Auction a;
+                if (auction_get(ids[i], &a)) {
+                    char line[200];
+                    sprintf(line, " - [%d] %s | Price: %.2f | Status: %s\n", 
+                            a.id, a.item_name, a.current_price, a.status == AUCTION_OPEN ? "OPEN" : "CLOSED");
+                    strcat(response, line);
+                }
+            }
+        }
         else if (strcmp(cmd, "CREATE") == 0) {
             if (!auth_can_create(&session)) {
                 sprintf(response, "ERROR: Unauthorized (Admin only)\n");

@@ -86,6 +86,7 @@ make all      # Builds both server and client binaries
 | `LOGIN <u:p>` | Anyone | Authenticate session | `LOGIN admin admin123` |
 | `CREATE <n:p:t>` | Admin | Start a new auction | `CREATE Laptop 1200 60` |
 | `LIST` | Anyone | List all open auctions | `LIST` |
+| `SEARCH <kw>` | Anyone | Search auctions by name | `SEARCH Rolex` |
 | `BID <id:val>` | Bidder | Place a higher bid | `BID 1 1300` |
 | `HISTORY <id>` | Anyone | Show bid history log | `HISTORY 1` |
 | `CLOSE <id>` | Admin | Force-close an auction | `CLOSE 1` |
