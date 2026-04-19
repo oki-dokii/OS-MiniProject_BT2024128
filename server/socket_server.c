@@ -208,7 +208,8 @@ void server_start(int port) {
 
     for (int i = 0; i < MAX_CLIENTS; i++) client_sockets[i] = -1;
 
-    printf("[SERVER] Listening on port %d (Max clients: %d)...\n", port, MAX_CONCURRENT_CLIENTS);
+    printf("[SERVER] Listening on port %d (Max clients: %d, Semaphore slots: %d)\n", 
+           port, MAX_CONCURRENT_CLIENTS, MAX_CONCURRENT_CLIENTS);
 
     while (1) {
         new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen);
