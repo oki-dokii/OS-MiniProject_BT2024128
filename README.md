@@ -38,10 +38,10 @@ Implemented in `timer.c`. The system uses `signal(SIGALRM, ...)` and `alarm(1)` 
 ### 5. Semaphores (Resource Counting)
 Implemented in `socket_server.c`. We use a counting semaphore (`sem_t connection_limit`) to limit the number of concurrent client connections (set to 10). This demonstrates OS-level resource management and thread blocking, as new clients will be held at `sem_wait()` if the server is at capacity.
 
-### 5. Inter-Process Communication (IPC)
+### 6. Inter-Process Communication (IPC)
 Implemented in `ipc.c`. A named pipe (FIFO) at `data/auction_events.fifo` serves as a broadcast channel. Modules like `bid_processor.c` write binary `AuctionEvent` structs to the pipe, which are picked up by a listener thread to provide real-time notification across the system.
 
-### 6. Network Programming
+### 7. Network Programming
 Implemented in `socket_server.c`. Using the POSIX Sockets API (`socket`, `bind`, `listen`, `accept`), the server exposes a TCP port (8080). It uses a "One Thread Per Client" model to maintain stateful user sessions concurrently.
 
 ---
