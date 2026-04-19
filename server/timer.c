@@ -1,5 +1,6 @@
 #include "timer.h"
 #include "auction_manager.h"
+#include "socket_server.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
@@ -42,6 +43,7 @@ void *ticker_func(void *arg) {
             if (timers[i].active) {
                 if (now >= timers[i].expire_time) {
                     printf("\n[TIMER] Auction %d expired! Closing...\n", timers[i].auction_id);
+                    broadcast_to_clients("\n[AUCTION CLOSED] Auction expired\n> ");
                     auction_close(timers[i].auction_id);
                     timers[i].active = false;
                 }

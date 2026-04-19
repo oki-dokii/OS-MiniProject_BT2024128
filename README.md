@@ -137,6 +137,47 @@ auction_system/
 
 ---
 
+## ✅ Test Results
+
+Every module has been verified using dedicated concurrent stress tests. Below is the captured output from the automated test suite:
+
+```text
+--- AUCTION SYSTEM AUTH TEST ---
+✓ Login successful (admin, alice, guest1)
+✓ Role validation (Admin: R/W/X, Bidder: R/W, Viewer: R)
+✓ Login failed (wrong pass, nonexistent user)
+
+--- FILE MANAGER CONCURRENCY TEST ---
+Spawning 5 processes, each writing 100 entries...
+Total entries found: 500 (Expected: 500)
+✓ SUCCESS: No data corruption detected. Locks enforced order.
+
+--- AUCTION MANAGER TEST ---
+Successfully created auctions with IDs: 1, 2, 3
+✓ Listing all auctions
+✓ Specific auction retrieval
+✓ Manual auction closure
+
+--- BID PROCESSOR CONCURRENCY TEST ---
+Spawning 10 threads all bidding 100.0 concurrently...
+✓ Thread-safe validation (Only 1 winner per round)
+✓ Atomic state updates via Mutex
+
+--- IPC NAMED-PIPE (FIFO) TEST ---
+✓ Listener received CREATED/BID/CLOSED events
+✓ Cross-process message serialization
+
+--- TIMER MODULE TEST ---
+Starting 3 auctions (3s, 5s, 7s)
+[SIGNAL] Heartbeat (SIGALRM)
+[TIMER] Auction 1 expired! Closing...
+[TIMER] Auction 2 expired! Closing...
+[TIMER] Auction 3 expired! Closing...
+✓ Final States: All CLOSED automatically
+```
+
+---
+
 ## 🛠️ Technologies
 - **Language**: C (C99 Standard)
 - **Concurrency**: POSIX Threads (`pthreads`)

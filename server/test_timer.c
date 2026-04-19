@@ -2,8 +2,11 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <time.h>
 #include "timer.h"
 #include "auction_manager.h"
+
+void broadcast_to_clients(const char *msg) { (void)msg; }
 
 int main() {
     printf("--- TIMER MODULE TEST ---\n\n");
