@@ -21,11 +21,16 @@ static pthread_mutex_t timer_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t ticker_thread;
 static bool running = true;
 
-// SIGALRM handler to demonstrate signal handling
+// SIGALRM handler — fires every second via alarm(1) in ticker_func
+// Prints a heartbeat message every 10 signals to keep output readable
 void handle_alarm(int sig) {
     (void)sig;
-    // Visible indicator that the SIGALRM signal transition is occurring
-    write(STDOUT_FILENO, "[SIGNAL] Heartbeat (SIGALRM)\n", 29);
+    static volatile int alarm_count = 0;
+    alarm_count++;
+    if (alarm_count % 10 == 0) {
+        /* Only log every 10th heartbeat — SIGALRM still fires every second */
+        write(STDOUT_FILENO, "[SIGNAL] Heartbeat (SIGALRM) — tick 10\n", 40);
+    }
 }
 
 void *ticker_func(void *arg) {
