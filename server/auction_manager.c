@@ -7,9 +7,12 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <pthread.h>
 
 #define AUCTIONS_DIR "data/auctions"
 #define NEXT_ID_FILE "data/auctions/next_id.txt"
+
+static pthread_mutex_t create_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int get_next_id() {
     char buf[20];
@@ -62,7 +65,9 @@ int auction_create(const char *item_name, double start_price, int duration_secs)
     }
 
     Auction a;
+    pthread_mutex_lock(&create_mutex);
     a.id = get_next_id();
+    pthread_mutex_unlock(&create_mutex);
     strncpy(a.item_name, item_name, sizeof(a.item_name));
     a.start_price = start_price;
     a.current_price = start_price;

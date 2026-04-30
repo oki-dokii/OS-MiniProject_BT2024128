@@ -19,17 +19,17 @@ typedef struct {
 static AuctionTimer timers[MAX_TIMERS];
 static pthread_mutex_t timer_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t ticker_thread;
-static bool running = true;
+static volatile bool running = true;
 
 // SIGALRM handler — fires every second via alarm(1) in ticker_func
 // Prints a heartbeat message every 10 signals to keep output readable
 void handle_alarm(int sig) {
     (void)sig;
-    static volatile int alarm_count = 0;
+    static volatile sig_atomic_t alarm_count = 0;
     alarm_count++;
     if (alarm_count % 10 == 0) {
-        /* Only log every 10th heartbeat — SIGALRM still fires every second */
-        write(STDOUT_FILENO, "[SIGNAL] Heartbeat (SIGALRM) — tick 10\n", 40);
+        static const char msg[] = "[SIGNAL] Heartbeat (SIGALRM) — tick 10\n";
+        write(STDOUT_FILENO, msg, sizeof(msg) - 1);
     }
 }
 

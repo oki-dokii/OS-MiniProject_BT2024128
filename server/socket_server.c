@@ -3,7 +3,7 @@
 #include "auction_manager.h"
 #include "bid_processor.h"
 #include "timer.h"
-#include "ipc.h"
+#include "ipc.h"  
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +13,10 @@
 #include <semaphore.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <signal.h>
+#include <errno.h>
+
+volatile sig_atomic_t g_shutdown = 0;
 
 #define BUFFER_SIZE 2048
 #define MAX_CONCURRENT_CLIENTS 10
@@ -99,29 +103,27 @@ void *client_handler(void *socket_desc) {
         else if (strcmp(cmd, "LIST") == 0) {
             int ids[50];
             int count = auction_list_all(ids, 50);
-            sprintf(response, "Auctions (%d found):\n", count);
-            for (int i = 0; i < count; i++) {
+            int off = snprintf(response, BUFFER_SIZE, "Auctions (%d found):\n", count);
+            for (int i = 0; i < count && off < BUFFER_SIZE - 1; i++) {
                 Auction a;
-                if (auction_get(ids[i], &a)) {
-                    char line[200];
-                    sprintf(line, " - [%d] %s | Price: %.2f | Status: %s\n", 
-                            a.id, a.item_name, a.current_price, a.status == AUCTION_OPEN ? "OPEN" : "CLOSED");
-                    strcat(response, line);
-                }
+                if (auction_get(ids[i], &a))
+                    off += snprintf(response + off, BUFFER_SIZE - off,
+                        " - [%d] %s | Price: %.2f | Status: %s\n",
+                        a.id, a.item_name, a.current_price,
+                        a.status == AUCTION_OPEN ? "OPEN" : "CLOSED");
             }
         }
         else if (strcmp(cmd, "SEARCH") == 0) {
             int ids[50];
             int count = auction_search(arg1, ids, 50);
-            sprintf(response, "Search results for '%s' (%d found):\n", arg1, count);
-            for (int i = 0; i < count; i++) {
+            int off = snprintf(response, BUFFER_SIZE, "Search results for '%s' (%d found):\n", arg1, count);
+            for (int i = 0; i < count && off < BUFFER_SIZE - 1; i++) {
                 Auction a;
-                if (auction_get(ids[i], &a)) {
-                    char line[200];
-                    sprintf(line, " - [%d] %s | Price: %.2f | Status: %s\n", 
-                            a.id, a.item_name, a.current_price, a.status == AUCTION_OPEN ? "OPEN" : "CLOSED");
-                    strcat(response, line);
-                }
+                if (auction_get(ids[i], &a))
+                    off += snprintf(response + off, BUFFER_SIZE - off,
+                        " - [%d] %s | Price: %.2f | Status: %s\n",
+                        a.id, a.item_name, a.current_price,
+                        a.status == AUCTION_OPEN ? "OPEN" : "CLOSED");
             }
         }
         else if (strcmp(cmd, "CREATE") == 0) {
@@ -230,10 +232,11 @@ void server_start(int port) {
     printf("[SERVER] Listening on port %d (Max clients: %d, Semaphore slots: %d)\n",
            port, MAX_CONCURRENT_CLIENTS, MAX_CONCURRENT_CLIENTS);
 
-    while (1) {
+    while (!g_shutdown) {
         new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen);
         if (new_socket < 0) {
-            perror("Accept failed");
+            if (g_shutdown) break;
+            if (errno != EINTR) perror("Accept failed");
             continue;
         }
 
@@ -253,7 +256,9 @@ void server_start(int port) {
         }
     }
 
-    // Cleanup named semaphore on server exit (graceful path)
+    // Graceful shutdown: notify clients, then release semaphore
+    broadcast_to_clients("\n[SERVER] Server shutting down. Goodbye!\n");
     sem_close(connection_limit);
     sem_unlink(SEM_NAME);
+    close(server_fd);
 }

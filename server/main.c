@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <errno.h>
 
@@ -17,10 +18,9 @@ void ensure_environment() {
 
 void signal_shutdown_handler(int sig) {
     (void)sig;
-    printf("\n[SYSTEM] SIGINT received. Shutting down gracefully...\n");
-    broadcast_to_clients("\n[SERVER] Server shutting down. Goodbye!\n");
-    ipc_cleanup();
-    exit(0);
+    static const char msg[] = "\n[SYSTEM] SIGINT received. Shutting down gracefully...\n";
+    write(STDOUT_FILENO, msg, sizeof(msg) - 1);
+    g_shutdown = 1; /* break the accept() loop in server_start() */
 }
 
 void system_event_handler(AuctionEvent ev) {
@@ -66,7 +66,8 @@ int main() {
     printf("[BOOT] Modules loaded: Auth, FileMgr, AuctionMgr, BidProcessor, Timer, IPC\n");
     printf("[BOOT] Starting TCP server on port 8080...\n\n");
 
-    server_start(8080);
+    server_start(8080); /* blocks until g_shutdown is set by SIGINT */
 
+    ipc_cleanup();
     return 0;
 }
