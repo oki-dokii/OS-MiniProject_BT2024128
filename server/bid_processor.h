@@ -17,6 +17,7 @@ typedef enum {
     BID_OUTBID,
     BID_CLOSED,
     BID_UNAUTHORIZED,
+    BID_SELF_BID,
     BID_ERROR
 } BidResult;
 

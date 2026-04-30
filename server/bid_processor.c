@@ -43,6 +43,12 @@ BidResult bid_place(const Session *session, int auction_id, double amount) {
         return BID_OUTBID;
     }
 
+    // NEW: Prevent bidding against yourself
+    if (a.highest_bidder[0] != '\0' && strcmp(a.highest_bidder, session->username) == 0) {
+        pthread_mutex_unlock(&bid_mutex);
+        return BID_SELF_BID;
+    }
+
     // 4. Record the bid
     if (mkdir(BIDS_DIR, 0755) == -1 && errno != EEXIST) {
         perror("Failed to create bids directory");

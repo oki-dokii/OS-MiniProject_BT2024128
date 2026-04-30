@@ -164,6 +164,7 @@ void *client_handler(void *socket_desc) {
                 case BID_OUTBID:  sprintf(response, "ERROR: Outbid\n"); break;
                 case BID_CLOSED:  sprintf(response, "ERROR: Auction closed\n"); break;
                 case BID_UNAUTHORIZED: sprintf(response, "ERROR: Unauthorized\n"); break;
+                case BID_SELF_BID: sprintf(response, "ERROR: You are already the highest bidder\n"); break;
                 default: sprintf(response, "ERROR: Unknown error\n");
             }
         }
