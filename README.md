@@ -1,190 +1,471 @@
-# 🏛️ OS-Inspired Distributed Auction System
+# 🏛️ Concurrent Auction System
 
-A robust, multi-user auction server built in C to demonstrate core Operating Systems concepts. The system features role-based authentication, disk-backed persistence with hardware-level file locking, atomic transaction processing via mutual exclusion, background automated task management using signals, and cross-subsystem event broadcasting through named pipes.
-
----
-
-## 🏗️ System Architecture
-
-| Module | File | OS Concept | Description |
-| :--- | :--- | :--- | :--- |
-| **Auth** | `auth.c` | RBAC | Role-based permission gating for Admin/Bidder/Viewer. |
-| **File Mgr** | `file_manager.c` | Advisory Locking | `fcntl`-based read/write locks for safe concurrent file I/O. |
-| **Auction Mgr** | `auction_manager.c` | Persistence | CRUD operations for auctions with disk serialization. |
-| **Bid Proc** | `bid_processor.c` | Mutex | Atomic validation and record updates. |
-| **Network** | `socket_server.c` | Sockets / Semaphore | TCP server with client connection limiting. |
-| **Timer** | `timer.c` | Signal Heartbeat | `SIGALRM` driven automated cleanup. |
-| **IPC** | `ipc.c` | Named Pipes (FIFO) | System-wide event broadcasting via POSIX FIFOs. |
+> **EGC 301P — Operating Systems Lab Mini Project**  
+> A multi-user, real-time auction platform built in C demonstrating all six mandatory OS concepts.
 
 ---
 
-## 🛠️ Mandatory OS Concepts
-
-### 1. Role-Based Access Control (RBAC)
-Implemented in `auth.c`. The system uses an `enum Role { ROLE_ADMIN, ROLE_BIDDER, ROLE_VIEWER }` to gate operations. Functions like `auth_can_create()` and `auth_can_bid()` are called before any core logic executes, ensuring that a "Guest" cannot create auctions and a "Bidder" cannot close them.
-
-### 2. File Locking (Advisory Locks)
-Implemented in `file_manager.c`. Instead of simple file I/O, every read/write operation applies `fcntl()` advisory locks.
-- **Shared Locks (`F_RDLCK`)**: Allow multiple concurrent readers.
-- **Exclusive Locks (`F_WRLCK`)**: Block all other readers and writers during record updates.
-This prevents the "Lost Update" problem at the filesystem level.
-
-### 3. Mutual Exclusion (Atoms)
-Implemented in `bid_processor.c`. While the File Manager protects the *disk*, the `bid_mutex` (`pthread_mutex_t`) protects the *logic*. It ensures that the sequence "Read current price → Validate new bid → Write new record" is fully atomic, preventing race conditions where two users might tie for the same price.
-
-### 4. Process Management & Signals
-Implemented in `main.c` and `timer.c`. 
-- **SIGALRM**: Used for a 1-second heartbeat to trigger background auction expiry checks.
-- **SIGINT**: The system traps the interrupt signal (Ctrl+C) to perform a **Graceful Shutdown**, broadcasting a departure message to all active clients and cleaning up IPC resources before exiting.
-
-### 5. Semaphores (Resource Counting)
-Implemented in `socket_server.c`. We use a counting semaphore (`sem_t connection_limit`) to limit the number of concurrent client connections (set to 10). This demonstrates OS-level resource management and thread blocking, as new clients will be held at `sem_wait()` if the server is at capacity.
-
-### 6. Inter-Process Communication (IPC)
-Implemented in `ipc.c`. A named pipe (FIFO) at `data/auction_events.fifo` serves as a broadcast channel. Modules like `bid_processor.c` write binary `AuctionEvent` structs to the pipe, which are picked up by a listener thread to provide real-time notification across the system.
-
-### 7. Network Programming
-Implemented in `socket_server.c`. Using the POSIX Sockets API (`socket`, `bind`, `listen`, `accept`), the server exposes a TCP port (8080). It uses a "One Thread Per Client" model to maintain stateful user sessions concurrently.
+## 📋 Table of Contents
+1. [Overview](#overview)
+2. [System Architecture](#system-architecture)
+3. [OS Concepts Implemented](#os-concepts-implemented)
+4. [Project Structure](#project-structure)
+5. [Build & Run](#build--run)
+6. [Command Reference](#command-reference)
+7. [Test Results](#test-results)
+8. [Design Decisions](#design-decisions)
 
 ---
 
-## 🚀 Getting Started
+## Overview
+
+The Concurrent Auction System is a TCP-based client-server application where multiple users can simultaneously list, bid on, and close auctions in real time. The project is implemented entirely in **C (C99)** on a POSIX-compliant system and directly demonstrates every mandatory OS concept from the course rubric.
+
+**Key Features:**
+- Multi-client TCP server with one dedicated thread per connection
+- Role-based access control (Admin / Bidder / Viewer)
+- Disk-backed persistence with `fcntl` advisory file locking
+- Mutex-protected atomic bid transactions
+- Named POSIX semaphore for connection-rate limiting
+- Named Pipe (FIFO) for cross-subsystem IPC event broadcasting
+- SIGALRM-driven auction countdown timers with SIGINT graceful shutdown
+
+---
+
+## System Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      CLIENT (client.c)                  │
+│       TCP socket → send command → receive response      │
+└──────────────────────────┬──────────────────────────────┘
+                           │ TCP/IP (port 8080)
+┌──────────────────────────▼──────────────────────────────┐
+│                   SOCKET SERVER (socket_server.c)        │
+│  sem_open ──► accept() ──► pthread_create(client_handler)│
+│               [Thread 1]   [Thread 2]   [Thread N]       │
+└──┬────────────────┬──────────────┬────────────┬──────────┘
+   │                │              │            │
+   ▼                ▼              ▼            ▼
+AUTH.C        AUCTION_MGR.C  BID_PROC.C    TIMER.C
+(RBAC)        (File CRUD)    (Mutex)       (SIGALRM)
+   │                │              │
+   └────────────────┴──────────────┘
+                    │
+             FILE_MANAGER.C
+             (fcntl R/W locks)
+                    │
+              data/auctions/
+              data/bids/
+                    │
+                  IPC.C
+              (Named FIFO)
+                    │
+           [Broadcast Thread]
+           → All active clients
+```
+
+---
+
+## OS Concepts Implemented
+
+### 4.1 Role-Based Authorization — `server/auth.c`
+
+Three roles are defined in `auth.h`:
+
+```c
+typedef enum { ROLE_ADMIN, ROLE_BIDDER, ROLE_VIEWER, ROLE_NONE } Role;
+```
+
+| Role   | LOGIN | LIST/SEARCH | BID | CREATE | CLOSE |
+|--------|-------|-------------|-----|--------|-------|
+| ADMIN  | ✓     | ✓           | ✓   | ✓      | ✓     |
+| BIDDER | ✓     | ✓           | ✓   | ✗      | ✗     |
+| VIEWER | ✓     | ✓           | ✗   | ✗      | ✗     |
+
+Every sensitive operation calls an auth gate before execution:
+```c
+// bid_processor.c
+if (!auth_can_bid(session)) return BID_UNAUTHORIZED;
+
+// socket_server.c
+if (!auth_can_create(&session)) {
+    sprintf(response, "ERROR: Unauthorized (Admin only)\n");
+}
+```
+
+User credentials are stored in `data/users.txt` in `username:password:ROLE` format.
+
+---
+
+### 4.2 File Locking — `server/file_manager.c`
+
+Every file read and write uses `fcntl()` POSIX advisory locks:
+
+```c
+// Shared lock for reads — allows multiple concurrent readers
+apply_lock(fd, F_RDLCK);
+
+// Exclusive lock for writes — blocks all other readers/writers
+apply_lock(fd, F_WRLCK);
+```
+
+`F_SETLKW` is used (blocking) so threads wait rather than fail. This prevents **lost updates** and **dirty reads** at the filesystem layer. The file manager is the single I/O gateway for all modules.
+
+---
+
+### 4.3 Concurrency Control — `server/bid_processor.c` & `server/socket_server.c`
+
+**Mutex** (in `bid_processor.c`):  
+Protects the critical section: Read → Validate → Write, ensuring a bid is atomic:
+
+```c
+static pthread_mutex_t bid_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+pthread_mutex_lock(&bid_mutex);
+// 1. Read current auction state
+// 2. Validate amount > current_price
+// 3. Write new bid + update auction file
+pthread_mutex_unlock(&bid_mutex);
+```
+
+**Named Semaphore** (in `socket_server.c`):  
+Limits concurrent connections to 10, demonstrating counting semaphores:
+
+```c
+connection_limit = sem_open("/auction_conn_limit", O_CREAT|O_EXCL, 0644, MAX_CONCURRENT_CLIENTS);
+sem_wait(connection_limit);   // Block if 10 clients already connected
+// ... handle client in new thread ...
+sem_post(connection_limit);   // Release slot when client disconnects
+```
+
+---
+
+### 4.4 Data Consistency — `server/file_manager.c` + `server/bid_processor.c`
+
+Two layers of consistency protection:
+
+1. **fcntl locks** prevent concurrent file corruption (two processes writing simultaneously)
+2. **pthread_mutex** prevents race conditions at the logic level (two threads both winning the same bid)
+
+**Verified by `test_bid_processor`**: 10 threads all bid `100.0` on an auction starting at `50.0` simultaneously. Only **exactly 1** thread succeeds; all others get `OUTBID`.
+
+**Verified by `test_file_manager`**: 5 forked processes each append 100 lines. Final line count is always **500/500** — no corruption.
+
+---
+
+### 4.5 Socket Programming — `server/socket_server.c` + `client/client.c`
+
+Full TCP client-server model using Berkeley Sockets:
+
+```c
+// Server side
+server_fd = socket(AF_INET, SOCK_STREAM, 0);
+bind(server_fd, &address, sizeof(address));
+listen(server_fd, 3);
+new_socket = accept(server_fd, &address, &addrlen);
+pthread_create(&thread_id, NULL, client_handler, new_sock);
+
+// Client side
+sock = socket(AF_INET, SOCK_STREAM, 0);
+connect(sock, &serv_addr, sizeof(serv_addr));
+send(sock, buffer, strlen(buffer), 0);
+recv(sock, response, BUFFER_SIZE, 0);
+```
+
+The server spawns a **dedicated pthread** per client, maintaining independent authentication sessions and enabling true concurrency.
+
+---
+
+### 4.6 Inter-Process Communication — `server/ipc.c`
+
+A **Named Pipe (FIFO)** at `data/auction_events.fifo` acts as an event bus. When any module raises an event (bid placed, auction created/closed), it writes a binary `AuctionEvent` struct to the FIFO:
+
+```c
+// Any module: raises an event
+AuctionEvent ev = { .type = EVENT_BID_PLACED, .auction_id = id, ... };
+ipc_send_event(ev);   // writes to FIFO
+
+// Background listener thread reads from FIFO
+void *ipc_listener_worker(void *arg) {
+    while (running) {
+        int fd = open(FIFO_PATH, O_RDONLY);
+        while (read(fd, &event, sizeof(AuctionEvent)) > 0)
+            listener_callback(event);   // broadcasts to all clients
+    }
+}
+```
+
+**Additionally, Signals (IPC mechanism)**:
+- `SIGALRM`: Raised every second by `timer.c` to drive auction expiry checks
+- `SIGINT`: Trapped in `main.c` for graceful server shutdown + client notification
+
+---
+
+## Project Structure
+
+```
+auction_system/
+├── Makefile                   # Build system (all, setup, run, tests, test-run)
+├── README.md                  # This file
+├── .gitignore
+├── data/
+│   ├── users.txt              # User database (admin/bidder/viewer accounts)
+│   ├── auctions/              # Auction records — one .txt file per auction
+│   └── bids/                  # Bid logs — one .txt file per auction
+├── client/
+│   └── client.c              # Interactive CLI client (colored ANSI output)
+└── server/
+    ├── main.c                 # Entry point, signal handlers, module bootstrap
+    ├── auth.h / auth.c        # RBAC — session, roles, permission gates
+    ├── file_manager.h / .c    # fcntl advisory R/W locking, all file I/O
+    ├── auction_manager.h / .c # Auction CRUD with disk serialization
+    ├── bid_processor.h / .c   # Mutex-protected atomic bid transactions
+    ├── timer.h / .c           # SIGALRM-based countdown timers
+    ├── ipc.h / ipc.c          # Named FIFO event bus + listener thread
+    ├── socket_server.h / .c   # TCP server, semaphore, per-client threads
+    ├── test_auth.c            # Auth unit test
+    ├── test_file_manager.c    # File lock concurrency test (fork-based)
+    ├── test_auction_manager.c # Auction CRUD test
+    ├── test_bid_processor.c   # Bid concurrency test (pthread-based)
+    ├── test_ipc.c             # Named pipe IPC test (fork-based)
+    └── test_timer.c           # Timer expiry + signal test
+```
+
+---
+
+## Build & Run
 
 ### Prerequisites
-- GCC Compiler
-- POSIX-compliant OS (Linux/macOS)
+- GCC (C99)
+- POSIX-compliant OS (Linux or macOS)
 
-### Build Instructions
+### Build
 ```bash
 cd auction_system
-make all      # Builds both server and client binaries
+make all          # Compiles auction_server and auction_client
+make setup        # Creates data directories and seeds users.txt
 ```
 
-### How to Run
-1. **Start the Server**:
-   ```bash
-   ./auction_server
-   ```
-2. **Connect as Admin** (Open a new terminal):
-   ```bash
-   ./auction_client
-   > LOGIN admin admin123
-   > CREATE "Vintage Rolex" 5000 60
-   ```
-3. **Connect as Bidder** (Open another terminal):
-   ```bash
-   ./auction_client
-   > LOGIN alice alice123
-   > LIST
-   > BID 1 5500
-   ```
+### Run
+**Terminal 1 — Start the server:**
+```bash
+./auction_server
+```
 
----
+Expected output:
+```
+==============================================
+   CONCURRENT AUCTION SYSTEM - SERVER v1.0
+==============================================
+OS Concepts Demonstrated:
+  [1] Role-Based Access Control (auth.c)
+  [2] File Locking via fcntl (file_manager.c)
+  [3] Mutex-Protected Transactions (bid_processor.c)
+  [4] Named Semaphore for Concurrency (socket_server.c)
+  [5] TCP Socket Server (socket_server.c)
+  [6] Named Pipe IPC / FIFO (ipc.c)
+  [7] Signals: SIGALRM + SIGINT (timer.c / main.c)
+==============================================
 
-## 📝 Command Reference
+[BOOT] Modules loaded: Auth, FileMgr, AuctionMgr, BidProcessor, Timer, IPC
+[BOOT] Starting TCP server on port 8080...
 
-| Command | Role | Description | Example |
-| :--- | :--- | :--- | :--- |
-| `LOGIN <u:p>` | Anyone | Authenticate session | `LOGIN admin admin123` |
-| `CREATE <n:p:t>` | Admin | Start a new auction | `CREATE Laptop 1200 60` |
-| `LIST` | Anyone | List all open auctions | `LIST` |
-| `SEARCH <kw>` | Anyone | Search auctions by name | `SEARCH Rolex` |
-| `BID <id:val>` | Bidder | Place a higher bid | `BID 1 1300` |
-| `HISTORY <id>` | Anyone | Show bid history log | `HISTORY 1` |
-| `CLOSE <id>` | Admin | Force-close an auction | `CLOSE 1` |
-| `QUIT` | Anyone | Terminate connection | `QUIT` |
+[SERVER] Listening on port 8080 (Max clients: 10, Semaphore slots: 10)
+```
 
----
+**Terminal 2 — Connect as Admin:**
+```bash
+./auction_client
+auction> LOGIN admin admin123
+auction> CREATE MacBook 80000 120
+auction> LIST
+auction> CLOSE 1
+```
 
-## 📁 Project Structure
+**Terminal 3 — Connect as Bidder:**
+```bash
+./auction_client
+auction> LOGIN alice alice123
+auction> LIST
+auction> SEARCH MacBook
+auction> BID 1 85000
+auction> HISTORY 1
+```
 
-```text
-auction_system/
-├── Makefile                # Multi-target build system
-├── README.md               # Documentation
-├── auction_server          # Server binary (generated)
-├── auction_client          # Client binary (generated)
-├── data/                   # Persistent storage
-│   ├── users.txt           # User DB
-│   ├── auctions/           # Auction records (.txt)
-│   └── bids/               # Bid logs (.txt)
-├── client/
-│   └── client.c            # CLI client implementation
-└── server/
-    ├── main.c              # Server entry point
-    ├── auth.h/c            # Security logic
-    ├── file_manager.h/c    # fcntl locking
-    ├── auction_manager.h/c # Auction state logic
-    ├── bid_processor.h/c   # Mutex-protected bidding
-    ├── timer.h/c           # Signal-based countdowns
-    ├── ipc.h/c             # Named pipe events
-    └── socket_server.h/c   # TCP networking
+### Run All Tests
+```bash
+make test-run     # Builds and runs all 6 module tests sequentially
 ```
 
 ---
 
-## 🧠 Design Decisions
+## Command Reference
 
-- **Mutex vs Semaphore**: Both are used in this project. **Mutexes** are used in the Bid Processor for exclusive ownership of a transaction. **Semaphores** are used in the Socket Server as a "counting" mechanism to limit concurrent socket sessions, demonstrating their utility in resource throttling.
-- **Named Pipe over Shared Memory**: Chosen for IPC because it provides a simplified, file-like interface for broadcasting events. Unlike shared memory, FIFOs handle synchronization internally (via kernel-level byte-streams), making them easier to debug for event logs.
-- **fcntl over flock**: `fcntl` was chosen for its flexibility. It supports byte-range locking and is POSIX standard, whereas `flock` can have inconsistent behavior on some filesystems (like NFS) and lacks the granularity needed for complex OS credit.
-- **Thread-per-Client over Select/Poll**: For an OS mini-project, the thread-per-client model is much more "OS credible" as it demonstrates process/thread management and context switching. While `select/poll` is more scalable for thousands of clients, pthreads are simpler for maintaining stateful authentication sessions.
+| Command | Requires Role | Description | Example |
+|---------|---------------|-------------|---------|
+| `LOGIN <user> <pass>` | — | Authenticate session | `LOGIN admin admin123` |
+| `LIST` | Any | List all auctions | `LIST` |
+| `SEARCH <keyword>` | Any | Search by item name | `SEARCH laptop` |
+| `CREATE <name> <price> <secs>` | Admin | Create timed auction | `CREATE Laptop 1200 60` |
+| `BID <id> <amount>` | Bidder/Admin | Place a bid | `BID 1 1300` |
+| `HISTORY <id>` | Any | View bid log | `HISTORY 1` |
+| `CLOSE <id>` | Admin | Force-close auction | `CLOSE 1` |
+| `HELP` | Any | Show command reference | `HELP` |
+| `QUIT` | Any | Disconnect | `QUIT` |
 
 ---
 
-## 💡 Innovation & Advanced Features
+## Test Results
 
-- **Live Event Broadcasting**: Unlike basic request-response systems, this server maintains a registry of all active client sockets. When an event occurs (New Bid, Auction Closed), the server uses IPC triggers to broadcast real-time notifications to all connected clients simultaneously.
-- **Concurrent Session Management**: The server supports multiple independent auctions running with their own dedicated timers, all managed by a single background thread and synchronized via global mutexes and semaphores.
-- **Real-Time Heartbeat**: The system provides a visual signal pulse (`SIGALRM`), demonstrating low-level kernel interaction and automated resource aging.
+All 6 modules tested individually with dedicated concurrent stress tests:
 
----
-
-## ✅ Test Results
-
-Every module has been verified using dedicated concurrent stress tests. Below is the captured output from the automated test suite:
-
-```text
+### [1/6] Auth Module Test
+```
 --- AUCTION SYSTEM AUTH TEST ---
-✓ Login successful (admin, alice, guest1)
-✓ Role validation (Admin: R/W/X, Bidder: R/W, Viewer: R)
-✓ Login failed (wrong pass, nonexistent user)
 
+Testing login for user: admin
+  ✓ Login successful
+  - Can bid: YES
+  - Can create: YES
+  - Can close: YES
+
+Testing login for user: alice
+  ✓ Login successful
+  - Can bid: YES
+  - Can create: NO
+  - Can close: NO
+
+Testing login for user: guest1
+  ✓ Login successful
+  - Can bid: NO
+  - Can create: NO
+  - Can close: NO
+
+Testing login for user: admin    [wrong password]
+  ✗ Login failed
+
+Testing login for user: nobody
+  ✗ Login failed
+```
+
+### [2/6] File Manager Concurrency Test
+```
 --- FILE MANAGER CONCURRENCY TEST ---
 Spawning 5 processes, each writing 100 entries...
+All processes finished. Verifying results...
 Total entries found: 500 (Expected: 500)
 ✓ SUCCESS: No data corruption detected. Locks enforced order.
-
---- AUCTION MANAGER TEST ---
-Successfully created auctions with IDs: 1, 2, 3
-✓ Listing all auctions
-✓ Specific auction retrieval
-✓ Manual auction closure
-
---- BID PROCESSOR CONCURRENCY TEST ---
-Spawning 10 threads all bidding 100.0 concurrently...
-✓ Thread-safe validation (Only 1 winner per round)
-✓ Atomic state updates via Mutex
-
---- IPC NAMED-PIPE (FIFO) TEST ---
-✓ Listener received CREATED/BID/CLOSED events
-✓ Cross-process message serialization
-
---- TIMER MODULE TEST ---
-Starting 3 auctions (3s, 5s, 7s)
-[SIGNAL] Heartbeat (SIGALRM)
-[TIMER] Auction 1 expired! Closing...
-[TIMER] Auction 2 expired! Closing...
-[TIMER] Auction 3 expired! Closing...
-✓ Final States: All CLOSED automatically
 ```
+
+### [3/6] Auction Manager Test
+```
+--- AUCTION MANAGER TEST ---
+
+Creating 3 auctions...
+Successfully created auctions with IDs: 1, 2, 3
+
+Listing all auctions:
+Auction [1]: Vintage Camera  | Price: 50.00  | Status: OPEN
+Auction [2]: Gaming Laptop   | Price: 1200.00| Status: OPEN
+Auction [3]: Rare Stamp      | Price: 200.00 | Status: OPEN
+
+Closing auction 1...
+Auction [1]: Vintage Camera  | Status: CLOSED
+```
+
+### [4/6] Bid Processor Concurrency Test
+```
+--- BID PROCESSOR CONCURRENCY TEST ---
+
+Created auction 1 starting at 50.0
+Spawning 10 threads all bidding 100.0 concurrently...
+Thread 1  (bidder_1):  SUCCESS
+Thread 2  (bidder_2):  OUTBID
+Thread 3  (bidder_3):  OUTBID
+...
+Thread 10 (bidder_10): OUTBID
+
+Final Auction State:
+  Price:  100.00
+  Winner: bidder_1
+
+Bid History:
+<timestamp>|bidder_1|100.00
+```
+**→ Mutex ensures only 1 winner despite 10 simultaneous bids.**
+
+### [5/6] IPC Named-Pipe Test
+```
+--- IPC named-pipe (FIFO) TEST ---
+
+[WRITER]   Sending 5 events to FIFO...
+[WRITER]   Sent event 1
+[LISTENER] Received event: CREATED | ID: 101 | User: user_1 | Amount: 10.50
+[WRITER]   Sent event 2
+[LISTENER] Received event: BID     | ID: 102 | User: user_2 | Amount: 21.00
+[WRITER]   Sent event 3
+[LISTENER] Received event: CLOSED  | ID: 103 | User: user_3 | Amount: 31.50
+[WRITER]   Sent event 4
+[LISTENER] Received event: BID     | ID: 104 | User: user_4 | Amount: 42.00
+[WRITER]   Sent event 5
+[LISTENER] Received event: CREATED | ID: 105 | User: user_5 | Amount: 52.50
+[WRITER]   Finished sending. Exiting...
+
+[MAIN] Closing IPC test.
+```
+
+### [6/6] Timer + Signal Test
+```
+--- TIMER MODULE TEST ---
+
+Starting 3 auctions with timers:
+- ID 1: 3 seconds
+- ID 2: 5 seconds
+- ID 3: 7 seconds
+
+T+0s | IDs left: [1: 3s left] [2: 5s left] [3: 7s left]
+T+1s | IDs left: [1: 2s left] [2: 4s left] [3: 6s left]
+T+2s | IDs left: [1: 1s left] [2: 3s left] [3: 5s left]
+[SIGNAL] Heartbeat (SIGALRM)
+T+3s | IDs left: [1: 1s left] [2: 3s left] [3: 5s left]
+[TIMER] Auction 1 expired! Closing...
+T+4s | IDs left: [2: 2s left] [3: 4s left]
+[TIMER] Auction 2 expired! Closing...
+T+6s | IDs left: [3: 2s left]
+[TIMER] Auction 3 expired! Closing...
+
+Test finished. Verifying final states...
+Auction 1 status: CLOSED ✓
+Auction 2 status: CLOSED ✓
+Auction 3 status: CLOSED ✓
+```
+**→ SIGALRM heartbeat fires every second; all 3 auctions auto-close on schedule.**
 
 ---
 
-## 🛠️ Technologies
-- **Language**: C (C99 Standard)
-- **Concurrency**: POSIX Threads (`pthreads`)
-- **Locking**: `fcntl` Advisory Locks
-- **Signals**: `SIGALRM`, `signal()`/`alarm()`
-- **Networking**: TCP Sockets (Berkeley Sockets)
-- **IPC**: POSIX FIFOs (Named Pipes)
+## Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Named Semaphore over `sem_init`** | `sem_init` is deprecated on macOS (POSIX unnamed semaphores not supported on Darwin). `sem_open` is portable and standards-compliant across Linux and macOS. |
+| **Mutex + File Lock (two layers)** | Mutex guards the *logic* (read-validate-write sequence); `fcntl` guards the *disk* (concurrent file access from different processes). Both are needed for full correctness. |
+| **Named Pipe over Shared Memory** | FIFOs have kernel-managed synchronization and a simple file-like API, ideal for event-log broadcasting. Shared memory requires manual synchronization and is harder to inspect. |
+| **Thread-per-Client** | Maintains stateful per-session auth context cleanly. `select`/`poll` would require session state stored externally and complicate the auth model. |
+| **`fcntl` over `flock`** | `fcntl` is POSIX standard, supports byte-range locking, and works correctly on NFS-mounted filesystems. `flock` has undefined behavior on some network filesystems. |
+| **SIGALRM heartbeat** | Demonstrates signal-based IPC and OS timer interaction. Every second the kernel delivers SIGALRM, which the timer thread uses to check auction expiry — a real-world OS pattern. |
+
+---
+
+## Technologies
+
+| Category | Technology |
+|----------|-----------|
+| Language | C (C99 Standard) |
+| Concurrency | POSIX Threads (`pthreads`) |
+| Synchronization | `pthread_mutex_t`, `sem_open` (named semaphore) |
+| File Locking | `fcntl()` advisory locks (`F_RDLCK`, `F_WRLCK`) |
+| Signals | `SIGALRM`, `SIGINT` via `signal()` / `alarm()` |
+| Networking | TCP Sockets (Berkeley Sockets API) |
+| IPC | POSIX Named Pipes (FIFOs via `mkfifo`) |
+| Build System | GNU Make |

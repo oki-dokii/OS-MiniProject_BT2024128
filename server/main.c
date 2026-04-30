@@ -3,8 +3,11 @@
 #include "timer.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <errno.h>
+
+void server_cleanup(); /* forward declared in socket_server.h */
 
 void ensure_environment() {
     if (mkdir("data", 0755) == -1 && errno != EEXIST) perror("mkdir data failed");
@@ -35,23 +38,35 @@ void system_event_handler(AuctionEvent ev) {
 }
 
 int main() {
-    printf("--- AUCTION SYSTEM SERVER INITIALIZING ---\n");
-    
+    printf("==============================================\n");
+    printf("   CONCURRENT AUCTION SYSTEM - SERVER v1.0   \n");
+    printf("==============================================\n");
+    printf("OS Concepts Demonstrated:\n");
+    printf("  [1] Role-Based Access Control (auth.c)\n");
+    printf("  [2] File Locking via fcntl (file_manager.c)\n");
+    printf("  [3] Mutex-Protected Transactions (bid_processor.c)\n");
+    printf("  [4] Named Semaphore for Concurrency (socket_server.c)\n");
+    printf("  [5] TCP Socket Server (socket_server.c)\n");
+    printf("  [6] Named Pipe IPC / FIFO (ipc.c)\n");
+    printf("  [7] Signals: SIGALRM + SIGINT (timer.c / main.c)\n");
+    printf("==============================================\n\n");
+
     ensure_environment();
-    
+
     signal(SIGINT, signal_shutdown_handler); // Register graceful shutdown
-    
+
     if (!ipc_init()) {
-        fprintf(stderr, "Failed to initialize IPC\n");
+        fprintf(stderr, "[ERROR] Failed to initialize IPC (FIFO). Exiting.\n");
         exit(1);
     }
     ipc_start_listener(system_event_handler);
-    
+
     timer_init();
-    
-    printf("Modules loaded: Auth, FileMgr, AuctionMgr, BidProcessor, Timer, IPC\n");
-    
+
+    printf("[BOOT] Modules loaded: Auth, FileMgr, AuctionMgr, BidProcessor, Timer, IPC\n");
+    printf("[BOOT] Starting TCP server on port 8080...\n\n");
+
     server_start(8080);
-    
+
     return 0;
 }

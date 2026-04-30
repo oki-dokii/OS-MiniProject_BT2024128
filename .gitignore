@@ -1,4 +1,4 @@
-# Binaries
+# Compiled Binaries
 auction_server
 auction_client
 test_auth
@@ -8,12 +8,14 @@ test_bid_processor
 test_timer
 test_ipc
 
-# Data (Sensitive/Transient)
-data/*.txt
+# Transient runtime data
 data/auctions/
 data/bids/
 data/*.fifo
+data/test_log.txt
 
-# Others
+# NOTE: data/users.txt is intentionally tracked (seed database)
+
+# Object files and OS artifacts
 *.o
 .DS_Store

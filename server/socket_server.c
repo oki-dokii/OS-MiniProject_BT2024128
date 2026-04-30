@@ -11,14 +11,26 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 #define BUFFER_SIZE 2048
 #define MAX_CONCURRENT_CLIENTS 10
 #define MAX_CLIENTS 100
+#define SEM_NAME "/auction_conn_limit"
 
-static sem_t connection_limit;
+static sem_t *connection_limit = NULL;
 static int client_sockets[MAX_CLIENTS];
 static pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static const char *role_to_string(Role r) {
+    switch (r) {
+        case ROLE_ADMIN:  return "ADMIN";
+        case ROLE_BIDDER: return "BIDDER";
+        case ROLE_VIEWER: return "VIEWER";
+        default:          return "NONE";
+    }
+}
 
 void broadcast_to_clients(const char *msg) {
     pthread_mutex_lock(&clients_mutex);
@@ -78,7 +90,8 @@ void *client_handler(void *socket_desc) {
 
         if (strcmp(cmd, "LOGIN") == 0) {
             if (auth_login(arg1, arg2, &session)) {
-                sprintf(response, "SUCCESS: Logged in as %s (%d)\n", session.username, session.role);
+                sprintf(response, "SUCCESS: Logged in as %s [Role: %s]\n",
+                        session.username, role_to_string(session.role));
             } else {
                 sprintf(response, "ERROR: Invalid credentials\n");
             }
@@ -169,7 +182,7 @@ void *client_handler(void *socket_desc) {
     printf("[SERVER] Client on socket %d disconnected\n", sock);
     unregister_client(sock);
     close(sock);
-    sem_post(&connection_limit); // Release semaphore slot
+    sem_post(connection_limit); // Release semaphore slot
     return NULL;
 }
 
@@ -203,12 +216,18 @@ void server_start(int port) {
         exit(EXIT_FAILURE);
     }
 
-    // Initialize semaphore for connection limiting (Counting Semaphore)
-    sem_init(&connection_limit, 0, MAX_CONCURRENT_CLIENTS);
+    // Initialize named semaphore for connection limiting (Counting Semaphore)
+    // Named semaphores are the POSIX-standard approach and work on macOS.
+    sem_unlink(SEM_NAME); // Remove any stale semaphore from a previous crash
+    connection_limit = sem_open(SEM_NAME, O_CREAT | O_EXCL, 0644, MAX_CONCURRENT_CLIENTS);
+    if (connection_limit == SEM_FAILED) {
+        perror("sem_open failed");
+        exit(EXIT_FAILURE);
+    }
 
     for (int i = 0; i < MAX_CLIENTS; i++) client_sockets[i] = -1;
 
-    printf("[SERVER] Listening on port %d (Max clients: %d, Semaphore slots: %d)\n", 
+    printf("[SERVER] Listening on port %d (Max clients: %d, Semaphore slots: %d)\n",
            port, MAX_CONCURRENT_CLIENTS, MAX_CONCURRENT_CLIENTS);
 
     while (1) {
@@ -219,16 +238,22 @@ void server_start(int port) {
         }
 
         // Wait for a slot to become available (Semaphore)
-        sem_wait(&connection_limit);
+        sem_wait(connection_limit);
 
         int *new_sock = malloc(sizeof(int));
         *new_sock = new_socket;
         pthread_t thread_id;
         if (pthread_create(&thread_id, NULL, client_handler, (void *)new_sock) < 0) {
             perror("Could not create thread");
+            sem_post(connection_limit); // return the slot we took
             free(new_sock);
             close(new_socket);
+        } else {
+            pthread_detach(thread_id); // Ensure thread resources are reclaimed on exit
         }
-        pthread_detach(thread_id); // Ensure thread resources are reclaimed on exit
     }
+
+    // Cleanup named semaphore on server exit (graceful path)
+    sem_close(connection_limit);
+    sem_unlink(SEM_NAME);
 }
