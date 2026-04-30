@@ -32,26 +32,6 @@ The Concurrent Auction System is a TCP-based client-server application where mul
 
 ---
 
-## System Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                      CLIENT (client.c)                  │
-│       TCP socket → send command → receive response      │
-└──────────────────────────┬──────────────────────────────┘
-                           │ TCP/IP (port 8080)
-┌──────────────────────────▼──────────────────────────────┐
-│                   SOCKET SERVER (socket_server.c)        │
-│  sem_open ──► accept() ──► pthread_create(client_handler)│
-│               [Thread 1]   [Thread 2]   [Thread N]       │
-└──┬────────────────┬──────────────┬────────────┬──────────┘
-   │                │              │            │
-   ▼                ▼              ▼            ▼
-AUTH.C        AUCTION_MGR.C  BID_PROC.C    TIMER.C
-(RBAC)        (File CRUD)    (Mutex)       (SIGALRM)
-   │                │              │
-   └────────────────┴──────────────┘
-                    │
              FILE_MANAGER.C
              (fcntl R/W locks)
                     │
