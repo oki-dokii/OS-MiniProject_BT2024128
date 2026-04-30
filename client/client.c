@@ -28,6 +28,7 @@ void print_help() {
     printf("  SEARCH <keyword>              Search auctions by item name\n");
     printf("  CREATE <name> <p> <t>         Create auction (Admin only)\n");
     printf("  BID <id> <amount>             Place a bid on an auction\n");
+    printf("  TIME <id>                     Check remaining time on an auction\n");
     printf("  HISTORY <id>                  View bid history for an auction\n");
     printf("  CLOSE <id>                    Force-close auction (Admin only)\n");
     printf("  HELP                          Show this help\n");

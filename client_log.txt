@@ -1,0 +1,20 @@
+[1m[34m╔══════════════════════════════════════════╗
+║       CONCURRENT AUCTION SYSTEM          ║
+║       Interactive Client v1.1            ║
+╚══════════════════════════════════════════╝
+[0m  Connecting to 127.0.0.1:8080 ...
+[32m  Connected successfully!
+
+[0m[1m[36m  === COMMAND REFERENCE ===
+[0m  LOGIN <user> <pass>           Authenticate your session
+  LIST                          List all auctions
+  SEARCH <keyword>              Search auctions by item name
+  CREATE <name> <p> <t>         Create auction (Admin only)
+  BID <id> <amount>             Place a bid on an auction
+  HISTORY <id>                  View bid history for an auction
+  CLOSE <id>                    Force-close auction (Admin only)
+  HELP                          Show this help
+  QUIT                          Disconnect from server
+
+[1m[33mauction> [0m[1m[33mauction> [0m[1m[33mauction> [0m[1m[33mauction> [0m[1m[33mauction> [0m[1m[33mauction> [0m[1m[33mauction> [0m[36mGoodbye!
+[0m

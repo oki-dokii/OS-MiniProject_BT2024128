@@ -68,6 +68,11 @@ int main() {
 
     server_start(8080); /* blocks until g_shutdown is set by SIGINT */
 
+    /* Notify all clients of the shutdown before exiting */
+    printf("\n[SYSTEM] Notifying clients and cleaning up...\n");
+    broadcast_to_clients("\n[SERVER] Server shutting down. Goodbye!\n");
+    sleep(1); /* Give the network buffer a second to flush */
+
     ipc_cleanup();
     return 0;
 }

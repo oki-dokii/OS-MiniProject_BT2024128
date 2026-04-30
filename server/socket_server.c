@@ -27,6 +27,20 @@ static sem_t *connection_limit = NULL;
 static int client_sockets[MAX_CLIENTS];
 static pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+static void format_time_left(int auction_id, AuctionStatus status, char *buf, size_t bufsize) {
+    if (status != AUCTION_OPEN) {
+        snprintf(buf, bufsize, "CLOSED");
+        return;
+    }
+    int secs = timer_seconds_left(auction_id);
+    if (secs < 0)
+        snprintf(buf, bufsize, "OPEN");
+    else if (secs >= 60)
+        snprintf(buf, bufsize, "OPEN (%dm %ds left)", secs / 60, secs % 60);
+    else
+        snprintf(buf, bufsize, "OPEN (%ds left)", secs);
+}
+
 static const char *role_to_string(Role r) {
     switch (r) {
         case ROLE_ADMIN:  return "ADMIN";
@@ -106,11 +120,13 @@ void *client_handler(void *socket_desc) {
             int off = snprintf(response, BUFFER_SIZE, "Auctions (%d found):\n", count);
             for (int i = 0; i < count && off < BUFFER_SIZE - 1; i++) {
                 Auction a;
-                if (auction_get(ids[i], &a))
+                if (auction_get(ids[i], &a)) {
+                    char status[32];
+                    format_time_left(a.id, a.status, status, sizeof(status));
                     off += snprintf(response + off, BUFFER_SIZE - off,
-                        " - [%d] %s | Price: %.2f | Status: %s\n",
-                        a.id, a.item_name, a.current_price,
-                        a.status == AUCTION_OPEN ? "OPEN" : "CLOSED");
+                        " - [%d] %s | Price: %.2f | %s\n",
+                        a.id, a.item_name, a.current_price, status);
+                }
             }
         }
         else if (strcmp(cmd, "SEARCH") == 0) {
@@ -119,11 +135,13 @@ void *client_handler(void *socket_desc) {
             int off = snprintf(response, BUFFER_SIZE, "Search results for '%s' (%d found):\n", arg1, count);
             for (int i = 0; i < count && off < BUFFER_SIZE - 1; i++) {
                 Auction a;
-                if (auction_get(ids[i], &a))
+                if (auction_get(ids[i], &a)) {
+                    char status[32];
+                    format_time_left(a.id, a.status, status, sizeof(status));
                     off += snprintf(response + off, BUFFER_SIZE - off,
-                        " - [%d] %s | Price: %.2f | Status: %s\n",
-                        a.id, a.item_name, a.current_price,
-                        a.status == AUCTION_OPEN ? "OPEN" : "CLOSED");
+                        " - [%d] %s | Price: %.2f | %s\n",
+                        a.id, a.item_name, a.current_price, status);
+                }
             }
         }
         else if (strcmp(cmd, "CREATE") == 0) {
@@ -167,6 +185,17 @@ void *client_handler(void *socket_desc) {
                 } else {
                     sprintf(response, "ERROR: Failed to close\n");
                 }
+            }
+        }
+        else if (strcmp(cmd, "TIME") == 0) {
+            int aid = atoi(arg1);
+            int secs = timer_seconds_left(aid);
+            if (secs < 0) {
+                sprintf(response, "ERROR: No active timer for auction %d\n", aid);
+            } else if (secs >= 60) {
+                sprintf(response, "Auction %d: %dm %ds remaining\n", aid, secs / 60, secs % 60);
+            } else {
+                sprintf(response, "Auction %d: %ds remaining\n", aid, secs);
             }
         }
         else if (strcmp(cmd, "QUIT") == 0) {
@@ -233,6 +262,24 @@ void server_start(int port) {
            port, MAX_CONCURRENT_CLIENTS, MAX_CONCURRENT_CLIENTS);
 
     while (!g_shutdown) {
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(server_fd, &readfds);
+
+        struct timeval tv;
+        tv.tv_sec = 1;  /* Check shutdown flag every 1 second */
+        tv.tv_usec = 0;
+
+        int retval = select(server_fd + 1, &readfds, NULL, NULL, &tv);
+        if (retval == -1) {
+            if (errno == EINTR) continue;
+            perror("select error");
+            break;
+        } else if (retval == 0) {
+            /* Timeout - just check g_shutdown and loop again */
+            continue;
+        }
+
         new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen);
         if (new_socket < 0) {
             if (g_shutdown) break;
