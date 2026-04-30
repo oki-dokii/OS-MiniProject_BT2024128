@@ -32,22 +32,90 @@ The Concurrent Auction System is a TCP-based client-server application where mul
 
 ---
 
-             FILE_MANAGER.C
-             (fcntl R/W locks)
-                    │
-              data/auctions/
-              data/bids/
-                    │
-                  IPC.C
-              (Named FIFO)
-                    │
-           [Broadcast Thread]
-           → All active clients
+## 🏗️ System Architecture
+
+The following diagram illustrates the interaction between the multi-threaded network layer, the logic modules, and the OS-level primitives (IPC, File Locking, Semaphores).
+
+```mermaid
+graph TD
+    subgraph Client_Side
+        C1[Client 1]
+        C2[Client 2]
+    end
+
+    subgraph Server_Network_Layer
+        S[Socket Server]
+        SEM[Named Semaphore: Connection Limit]
+        T1[Thread: Handler 1]
+        T2[Thread: Handler 2]
+    end
+
+    subgraph Logic_Modules
+        AUTH[Auth Module: RBAC]
+        AM[Auction Manager]
+        BP[Bid Processor: Mutex Protected]
+        TM[Timer Module: SIGALRM Heartbeat]
+    end
+
+    subgraph OS_Storage_IPC
+        FL[File Manager: fcntl Locks]
+        FIFO[Named Pipe: Event FIFO]
+        DB[(File System: .txt DB)]
+    end
+
+    C1 & C2 <-->|TCP Sockets| S
+    S -->|sem_wait| SEM
+    S -->|pthread_create| T1 & T2
+    
+    T1 & T2 --> AUTH
+    T1 & T2 --> AM
+    T1 & T2 --> BP
+    
+    AM & BP & TM -->|Binary Structs| FIFO
+    BP & AM --> FL
+    FL <--> DB
+    
+    FIFO -.->|Broadcast| T1 & T2
 ```
 
 ---
 
-## OS Concepts Implemented
+## 📊 Data Model (ER Diagram)
+
+```mermaid
+erDiagram
+    USER ||--o{ AUCTION : creates
+    USER ||--o{ BID : places
+    AUCTION ||--o{ BID : contains
+    
+    USER {
+        string username PK
+        string password
+        string role
+    }
+    
+    AUCTION {
+        int id PK
+        string item_name
+        double start_price
+        double current_price
+        string highest_bidder FK
+        string status
+        int duration_secs
+        long start_time
+    }
+    
+    BID {
+        int auction_id FK
+        string bidder_username FK
+        double amount
+        long timestamp
+    }
+```
+
+---
+
+## 🛠️ Mandatory OS Concepts
 
 ### 4.1 Role-Based Authorization — `server/auth.c`
 
@@ -233,27 +301,6 @@ make setup        # Creates data directories and seeds users.txt
 ./auction_server
 ```
 
-Expected output:
-```
-==============================================
-   CONCURRENT AUCTION SYSTEM - SERVER v1.0
-==============================================
-OS Concepts Demonstrated:
-  [1] Role-Based Access Control (auth.c)
-  [2] File Locking via fcntl (file_manager.c)
-  [3] Mutex-Protected Transactions (bid_processor.c)
-  [4] Named Semaphore for Concurrency (socket_server.c)
-  [5] TCP Socket Server (socket_server.c)
-  [6] Named Pipe IPC / FIFO (ipc.c)
-  [7] Signals: SIGALRM + SIGINT (timer.c / main.c)
-==============================================
-
-[BOOT] Modules loaded: Auth, FileMgr, AuctionMgr, BidProcessor, Timer, IPC
-[BOOT] Starting TCP server on port 8080...
-
-[SERVER] Listening on port 8080 (Max clients: 10, Semaphore slots: 10)
-```
-
 **Terminal 2 — Connect as Admin:**
 ```bash
 ./auction_client
@@ -321,12 +368,6 @@ Testing login for user: guest1
   - Can bid: NO
   - Can create: NO
   - Can close: NO
-
-Testing login for user: admin    [wrong password]
-  ✗ Login failed
-
-Testing login for user: nobody
-  ✗ Login failed
 ```
 
 ### [2/6] File Manager Concurrency Test
@@ -373,7 +414,6 @@ Final Auction State:
 Bid History:
 <timestamp>|bidder_1|100.00
 ```
-**→ Mutex ensures only 1 winner despite 10 simultaneous bids.**
 
 ### [5/6] IPC Named-Pipe Test
 ```
@@ -420,7 +460,6 @@ Auction 1 status: CLOSED ✓
 Auction 2 status: CLOSED ✓
 Auction 3 status: CLOSED ✓
 ```
-**→ SIGALRM heartbeat fires every second; all 3 auctions auto-close on schedule.**
 
 ---
 
